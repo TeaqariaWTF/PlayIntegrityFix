@@ -39,47 +39,55 @@ public:
 
     void preAppSpecialize(AppSpecializeArgs *args) override {
         auto rawProcess = env->GetStringUTFChars(args->nice_name, nullptr);
-        bool isGmsUnstable =
-                std::string_view(rawProcess).compare("com.google.android.gms.unstable") == 0;
+        std::string process(rawProcess);
         env->ReleaseStringUTFChars(args->nice_name, rawProcess);
 
-        if (!isGmsUnstable) {
+        if (!process.starts_with("com.google.android.gms")) {
+            process.clear();
+            process.shrink_to_fit();
             api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
 
         api->setOption(zygisk::FORCE_DENYLIST_UNMOUNT);
 
-        auto rawAppDir = env->GetStringUTFChars(args->app_data_dir, nullptr);
-        appDir = rawAppDir;
-        env->ReleaseStringUTFChars(args->app_data_dir, rawAppDir);
+        if (process == "com.google.android.gms.unstable") {
+            auto rawAppDir = env->GetStringUTFChars(args->app_data_dir, nullptr);
+            appDir = rawAppDir;
+            env->ReleaseStringUTFChars(args->app_data_dir, rawAppDir);
 
-        int fd = api->connectCompanion();
-        int strSize = (int) appDir.size();
-        send(fd, &strSize, sizeof(strSize), 0);
-        send(fd, appDir.data(), appDir.size(), 0);
-        bool correct;
-        recv(fd, &correct, sizeof(correct), 0);
-        close(fd);
+            int fd = api->connectCompanion();
+            int strSize = (int) appDir.size();
+            send(fd, &strSize, sizeof(strSize), 0);
+            send(fd, appDir.data(), appDir.size(), 0);
+            bool correct;
+            recv(fd, &correct, sizeof(correct), 0);
+            close(fd);
 
-        if (!correct) {
-            appDir.clear();
-            appDir.shrink_to_fit();
-            api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+            if (!correct) {
+                appDir.clear();
+                appDir.shrink_to_fit();
+                api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+            }
         }
+
+        process.clear();
+        process.shrink_to_fit();
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
         if (appDir.empty()) return;
 
         LOGI("hooking");
-        auto handle = DobbySymbolResolver(nullptr, "__system_property_read_callback");
+        void *handle = DobbySymbolResolver(nullptr, "__system_property_read_callback");
         if (handle == nullptr) {
-            LOGI("Error, can't get handle");
+            LOGI("Error, can't get __system_property_read_callback handle");
+            appDir.clear();
+            appDir.shrink_to_fit();
             return;
         }
-        LOGI("Get __system_property_read_callback handle at %p", handle);
-        DobbyHook(handle, (void *) my_hook, (void **) &o_hook);
+        LOGI("Get __system_property_read_callback at %p", handle);
+        DobbyHook(handle, (dobby_dummy_func_t) my_hook, (dobby_dummy_func_t *) &o_hook);
 
         LOGI("get system classloader");
         auto clClass = env->FindClass("java/lang/ClassLoader");
@@ -146,6 +154,8 @@ static void companion(int fd) {
 
     if (correct) {
         std::filesystem::permissions(appDir + "/SNFix.dex",
+                                     std::filesystem::perms::group_read |
+                                     std::filesystem::perms::owner_read |
                                      std::filesystem::perms::others_read);
     }
 

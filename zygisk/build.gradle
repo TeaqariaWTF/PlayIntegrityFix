@@ -16,7 +16,17 @@ android {
         targetSdk 34
         externalNativeBuild {
             cmake {
-                arguments '-DCMAKE_BUILD_TYPE=Release', '-DANDROID_STL=none'
+                arguments '-DCMAKE_BUILD_TYPE=Release',
+                        '-DCMAKE_CXX_STANDARD=23',
+                        '-DCMAKE_CXX_STANDARD_REQUIRED=ON'
+                cppFlags '-fno-exceptions',
+                        '-fno-rtti',
+                        '-fvisibility=hidden',
+                        '-fvisibility-inlines-hidden',
+                        '-flto',
+                        '-Ofast',
+                        '-mllvm',
+                        '-polly'
             }
         }
     }
@@ -26,9 +36,4 @@ android {
             path 'jni/CMakeLists.txt'
         }
     }
-}
-
-dependencies {
-    implementation 'dev.rikka.ndk.thirdparty:cxx:1.2.0'
-    implementation 'io.github.vvb2060.ndk:dobby:1.2'
 }
